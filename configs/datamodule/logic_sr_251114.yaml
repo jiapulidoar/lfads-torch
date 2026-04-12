@@ -1,0 +1,7 @@
+_target_: lfads_torch.datamodules.BasicDataModule
+datafile_pattern: ${relpath:datasets/logic_sr_251114.h5}
+attr_keys:
+  - psth
+  - train_cond_idx
+  - valid_cond_idx
+batch_size: 256

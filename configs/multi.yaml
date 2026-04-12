@@ -1,6 +1,6 @@
 defaults:
-  - model: nlb_mc_maze
-  - datamodule: nlb_mc_maze
+  - model: "logic_sr_251114" # nlb_mc_maze #logic_sr
+  - datamodule: "logic_sr_251114" # nlb_mc_maze #logic_sr
   - callbacks: default
   - _self_
 

@@ -6,9 +6,9 @@ from pathlib import Path
 from lfads_torch.run_model import run_model
 
 # ---------- OPTIONS -----------
-PROJECT_STR = "lfads-torch-example"
-DATASET_STR = "nlb_mc_maze"
-RUN_TAG = datetime.now().strftime("%y%m%d") + "_exampleSingle"
+PROJECT_STR = "lfads-torch-logic-251114"
+DATASET_STR = "logic_sr_251114"#  "nlb_mc_maze" # "logic_sr"
+RUN_TAG = datetime.now().strftime("%y%m%d%Hz%M") + "_logicSingle"
 RUN_DIR = Path("runs") / PROJECT_STR / DATASET_STR / RUN_TAG
 OVERWRITE = True
 # ------------------------------

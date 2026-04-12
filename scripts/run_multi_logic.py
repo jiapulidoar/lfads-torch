@@ -11,9 +11,9 @@ from ray.tune.suggest.basic_variant import BasicVariantGenerator
 from lfads_torch.run_model import run_model
 
 # ---------- OPTIONS -----------
-PROJECT_STR = "lfads-torch-example"
-DATASET_STR = "nlb_mc_maze"
-RUN_TAG = datetime.now().strftime("%y%m%d") + "_exampleMulti"
+PROJECT_STR = "lfads-torch-logic-251114"
+DATASET_STR = "logic_sr_251114"#  "nlb_mc_maze" # "logic_sr"
+RUN_TAG = datetime.now().strftime("%y%m%d%H%M") + "_logicMulti"
 RUN_DIR = Path("runs")  / PROJECT_STR / DATASET_STR / RUN_TAG
 # ------------------------------
 
@@ -40,13 +40,13 @@ tune.run(
     name=RUN_DIR.name,
     config={
         **mandatory_overrides,
-        "model.dropout_rate": tune.uniform(0.0, 0.6),
+        "model.dropout_rate": tune.uniform(0.2, 0.5),
         "model.kl_co_scale": tune.loguniform(1e-6, 1e-4),
         "model.kl_ic_scale": tune.loguniform(1e-6, 1e-3),
         "model.l2_gen_scale": tune.loguniform(1e-4, 1e0),
         "model.l2_con_scale": tune.loguniform(1e-4, 1e0),
     },
-    resources_per_trial=dict(cpu=3, gpu=0.5),
+    resources_per_trial=dict(cpu=1, gpu=0.5),
     num_samples=60,
     local_dir=RUN_DIR.parent,
     search_alg=BasicVariantGenerator(random_state=0),
