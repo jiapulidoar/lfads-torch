@@ -11,8 +11,9 @@ from ray.tune.suggest.basic_variant import BasicVariantGenerator
 from lfads_torch.run_model import run_model
 
 # ---------- OPTIONS -----------
-PROJECT_STR = "lfads-torch-logic-251114"
-DATASET_STR = "logic_sr_251114"#  "nlb_mc_maze" # "logic_sr"
+PROJECT_STR = "lfads-torch-logic-251209_preparatory"
+DATASET_STR = "logic_sr_251209_preparatory" #  
+MODEL_STR = "logic_sr_251209_preparatory" # 
 RUN_TAG = datetime.now().strftime("%y%m%d%H%M") + "_logicMulti"
 RUN_DIR = Path("runs")  / PROJECT_STR / DATASET_STR / RUN_TAG
 # ------------------------------
@@ -20,7 +21,7 @@ RUN_DIR = Path("runs")  / PROJECT_STR / DATASET_STR / RUN_TAG
 # Set the mandatory config overrides to select datamodule and model
 mandatory_overrides = {
     "datamodule": DATASET_STR,
-    "model": DATASET_STR,
+    "model": MODEL_STR,
     "logger.wandb_logger.project": PROJECT_STR,
     "logger.wandb_logger.tags.1": DATASET_STR,
     "logger.wandb_logger.tags.2": RUN_TAG,
@@ -46,7 +47,7 @@ tune.run(
         "model.l2_gen_scale": tune.loguniform(1e-4, 1e0),
         "model.l2_con_scale": tune.loguniform(1e-4, 1e0),
     },
-    resources_per_trial=dict(cpu=1, gpu=0.5),
+    resources_per_trial=dict(cpu=1, gpu=0.25),
     num_samples=60,
     local_dir=RUN_DIR.parent,
     search_alg=BasicVariantGenerator(random_state=0),

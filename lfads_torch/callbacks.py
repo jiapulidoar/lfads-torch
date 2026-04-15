@@ -1,6 +1,7 @@
 import io
 
 import matplotlib.pyplot as plt
+import matplotlib.cm as mcm
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -155,6 +156,7 @@ class RasterPlot(pl.Callback):
             )
 
 
+
 class TrajectoryPlot(pl.Callback):
     """Plots the top-3 PC's of the latent trajectory for
     all samples in the validation set and logs to tensorboard.
@@ -169,6 +171,7 @@ class TrajectoryPlot(pl.Callback):
             The frequency with which to plot and log, by default 100
         """
         self.log_every_n_epochs = log_every_n_epochs
+
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Logs plots at the end of the validation epoch.
@@ -189,6 +192,14 @@ class TrajectoryPlot(pl.Callback):
         # Get only the validation dataloaders
         pred_dls = trainer.datamodule.predict_dataloader()
         dataloaders = {s: dls["valid"] for s, dls in pred_dls.items()}
+        # Build a flat per-trial condition array from valid_cond_idx if available
+        cond_labels = None
+        if hasattr(trainer.datamodule, "valid_cond_idx"):
+            valid_cond_idx = trainer.datamodule.valid_cond_idx
+            n_valid = sum(len(idx) for idx in valid_cond_idx)
+            cond_labels = np.empty(n_valid, dtype=int)
+            for c, idxs in enumerate(valid_cond_idx):
+                cond_labels[idxs] = c
         # Compute outputs and plot for one session at a time
         for s, dataloader in dataloaders.items():
             latents = []
@@ -209,13 +220,31 @@ class TrajectoryPlot(pl.Callback):
                 explained_variance = np.sum(pca.explained_variance_ratio_)
             else:
                 explained_variance = 1.0
-            # Create figure and plot trajectories
+            # Create figure and plot trajectories, colored by condition if available
             fig = plt.figure(figsize=(10, 10))
             ax = fig.add_subplot(111, projection="3d")
-            for traj in latents:
-                ax.plot(*traj.T, alpha=0.2, linewidth=0.5)
-            ax.scatter(*latents[:, 0, :].T, alpha=0.1, s=10, c="g")
-            ax.scatter(*latents[:, -1, :].T, alpha=0.1, s=10, c="r")
+            if cond_labels is not None:
+                n_conds = int(cond_labels.max()) + 1
+                cmap = mcm.get_cmap("tab10", n_conds)
+                for i, traj in enumerate(latents):
+                    c = int(cond_labels[i])
+                    color = cmap(c)
+                    ax.plot(*traj.T, alpha=0.4, linewidth=0.8, color=color,
+                            label=f"Cond {c}" if i == np.where(cond_labels == c)[0][0] else "")
+                ax.scatter(*latents[:, 0, :].T, alpha=0.3, s=10,
+                           c=[cmap(int(c)) for c in cond_labels])
+                ax.scatter(*latents[:, -1, :].T, alpha=0.3, s=10, marker="^",
+                           c=[cmap(int(c)) for c in cond_labels])
+                # Deduplicated legend
+                handles, labels = ax.get_legend_handles_labels()
+                by_label = dict(zip(labels, handles))
+                ax.legend(by_label.values(), by_label.keys(), fontsize=8,
+                          loc="upper left", ncol=2)
+            else:
+                for traj in latents:
+                    ax.plot(*traj.T, alpha=0.2, linewidth=0.5)
+                ax.scatter(*latents[:, 0, :].T, alpha=0.1, s=10, c="g")
+                ax.scatter(*latents[:, -1, :].T, alpha=0.1, s=10, c="r")
             ax.set_title(f"explained variance: {explained_variance:.2f}")
             plt.tight_layout()
             # Log the figure

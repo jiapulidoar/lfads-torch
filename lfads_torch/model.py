@@ -8,7 +8,8 @@ from .metrics import ExpSmoothedMetric, r2_score, regional_bits_per_spike
 from .modules import augmentations
 from .modules.decoder import Decoder
 from .modules.encoder import Encoder
-from .modules.l2 import compute_l2_penalty
+from .modules.encoder_transformer import TransformerEncoder
+from .modules.l2 import compute_l2_penalty, compute_l2_penalty_transformer
 from .modules.priors import Null
 from .tuples import SessionBatch, SessionOutput
 from .utils import transpose_lists
@@ -571,3 +572,115 @@ class LFADS(pl.LightningModule):
         for aug in self.train_aug_stack.batch_transforms:
             if hasattr(aug, "cd_rate"):
                 self.log("hp/cd_rate", aug.cd_rate)
+
+
+class LFADSTransformer(LFADS):
+    """
+    LFADS variant that uses a Transformer encoder (3 layers, 6 heads) in place
+    of the default bidirectional GRU encoder. All other components — decoder,
+    optimizer, training loop — are inherited unchanged from ``LFADS``.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Replace the GRU encoder with the Transformer encoder
+        self.encoder = TransformerEncoder(hparams=self.hparams)
+
+    def _shared_step(self, batch, batch_idx, split):
+        # Identical to LFADS._shared_step but uses the transformer L2 penalty
+        hps = self.hparams
+        assert split in ["train", "valid"]
+        sessions = sorted(batch.keys())
+        batch = {s: b[0] for s, b in batch.items()}
+        aug_stack = self.train_aug_stack if split == "train" else self.infer_aug_stack
+        batch = {s: aug_stack.process_batch(batch[s]) for s in sessions}
+        output = self.forward(
+            batch, sample_posteriors=hps.variational, output_means=False
+        )
+        recon_all = [
+            self.recon[s].compute_loss(batch[s].recon_data, output[s].output_params)
+            for s in sessions
+        ]
+        recon_all = [
+            aug_stack.process_losses(ra, batch[s], self.log, split)
+            for ra, s in zip(recon_all, sessions)
+        ]
+        sess_bps, sess_co_bps, sess_fp_bps = transpose_lists(
+            [
+                regional_bits_per_spike(
+                    output[s].output_params[..., 0],
+                    batch[s].recon_data,
+                    hps.encod_data_dim,
+                    hps.encod_seq_len,
+                )
+                for s in sessions
+            ]
+        )
+        bps = torch.mean(torch.stack(sess_bps))
+        co_bps = torch.mean(torch.stack(sess_co_bps))
+        fp_bps = torch.mean(torch.stack(sess_fp_bps))
+        if not hps.recon_reduce_mean:
+            recon_all = [torch.sum(ra, dim=(1, 2)) for ra in recon_all]
+        sess_recon = [ra.mean() for ra in recon_all]
+        recon = torch.mean(torch.stack(sess_recon))
+        # Use transformer-specific L2 penalty
+        l2 = compute_l2_penalty_transformer(self, self.hparams)
+        ic_mean = torch.cat([output[s].ic_mean for s in sessions])
+        ic_std = torch.cat([output[s].ic_std for s in sessions])
+        co_means = torch.cat([output[s].co_means for s in sessions])
+        co_stds = torch.cat([output[s].co_stds for s in sessions])
+        ic_kl = self.ic_prior(ic_mean, ic_std) * self.hparams.kl_ic_scale
+        co_kl = self.co_prior(co_means, co_stds) * self.hparams.kl_co_scale
+        l2_ramp = self._compute_ramp(hps.l2_start_epoch, hps.l2_increase_epoch)
+        kl_ramp = self._compute_ramp(hps.kl_start_epoch, hps.kl_increase_epoch)
+        loss = hps.loss_scale * (recon + l2_ramp * l2 + kl_ramp * (ic_kl + co_kl))
+        if batch[0].truth.numel() > 0:
+            output_means = [
+                self.recon[s].compute_means(output[s].output_params) for s in sessions
+            ]
+            r2 = torch.mean(
+                torch.stack(
+                    [r2_score(om, batch[s].truth) for om, s in zip(output_means, sessions)]
+                )
+            )
+        else:
+            r2 = float("nan")
+        batch_sizes = [len(batch[s].encod_data) for s in sessions]
+        for s, recon_value, batch_size in zip(sessions, sess_recon, batch_sizes):
+            self.log(
+                name=f"{split}/recon/sess{s}",
+                value=recon_value,
+                on_step=False,
+                on_epoch=True,
+                batch_size=batch_size,
+            )
+        metrics = {
+            f"{split}/loss": loss,
+            f"{split}/recon": recon,
+            f"{split}/bps": max(bps, -1.0),
+            f"{split}/co_bps": max(co_bps, -1.0),
+            f"{split}/fp_bps": max(fp_bps, -1.0),
+            f"{split}/r2": r2,
+            f"{split}/wt_l2": l2,
+            f"{split}/wt_l2/ramp": l2_ramp,
+            f"{split}/wt_kl": ic_kl + co_kl,
+            f"{split}/wt_kl/ic": ic_kl,
+            f"{split}/wt_kl/co": co_kl,
+            f"{split}/wt_kl/ramp": kl_ramp,
+        }
+        if split == "valid":
+            self.valid_recon_smth.update(recon, batch_size)
+            metrics.update(
+                {
+                    "valid/recon_smth": self.valid_recon_smth,
+                    "hp_metric": recon,
+                    "cur_epoch": float(self.current_epoch),
+                }
+            )
+        self.log_dict(
+            metrics,
+            on_step=False,
+            on_epoch=True,
+            batch_size=sum(batch_sizes),
+        )
+        return loss

@@ -22,3 +22,4 @@ run_model(
     config_path="../configs/single.yaml",
     do_train=False,
 )
+
