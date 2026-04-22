@@ -269,7 +269,7 @@ if __name__ == "__main__":
         )
         X[c] = traj + 0.3 * rng.standard_normal((n_times, n_feat))
 
-    result = jpca(X, num_jpcs=2, num_pcs=6)
+    log
 
     print("jPCA demo")
     print("---------")
